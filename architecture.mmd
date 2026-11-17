@@ -1,6 +1,7 @@
 flowchart TB
     internet((Internet))
     iap[Identity-Aware Proxy<br/>35.235.240.0/20]
+    logging[("Cloud Logging<br/>VPC Flow Logs")]
 
     subgraph vpc["VPC: main-vpc (global, custom mode, ULA IPv6 enabled)"]
         direction TB
@@ -42,3 +43,5 @@ flowchart TB
     nat --> internet
     iap -.->|"SSH"| publicvm
     iap -.->|"SSH"| privatevm
+    pub -.->|"flow logs<br/>5s interval, 50% sampling"| logging
+    priv -.->|"flow logs<br/>5s interval, 50% sampling"| logging

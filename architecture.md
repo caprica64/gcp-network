@@ -4,6 +4,7 @@
 flowchart TB
     internet((Internet))
     iap[Identity-Aware Proxy<br/>35.235.240.0/20]
+    logging[("Cloud Logging<br/>VPC Flow Logs")]
 
     subgraph vpc["VPC: main-vpc (global, custom mode, ULA IPv6 enabled)"]
         direction TB
@@ -45,6 +46,8 @@ flowchart TB
     nat --> internet
     iap -.->|"SSH"| publicvm
     iap -.->|"SSH"| privatevm
+    pub -.->|"flow logs<br/>5s interval, 50% sampling"| logging
+    priv -.->|"flow logs<br/>5s interval, 50% sampling"| logging
 ```
 
 ## Notes
@@ -52,4 +55,5 @@ flowchart TB
 - GCP VPCs are global. The 10.0.0.0/16 range is only the space the subnets are carved from.
 - GCP has no route tables. Routes belong to the VPC and apply to every subnet.
 - The private VM has no external IPv4 or IPv6 address. It has no IPv6 route to the internet.
+- Both subnets send VPC Flow Logs to Cloud Logging.
 - Inbound internet traffic to the public VM is blocked until you add an ingress firewall rule.

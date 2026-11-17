@@ -45,6 +45,12 @@ resource "google_compute_subnetwork" "private" {
 
   stack_type       = "IPV4_IPV6"
   ipv6_access_type = "INTERNAL"
+
+  log_config {
+    aggregation_interval = "INTERVAL_5_SEC"
+    flow_sampling        = 0.5
+    metadata             = "INCLUDE_ALL_METADATA"
+  }
 }
 
 # Public subnet: dual-stack with a Google-assigned, internet-routable /64.
@@ -56,6 +62,12 @@ resource "google_compute_subnetwork" "public" {
 
   stack_type       = "IPV4_IPV6"
   ipv6_access_type = "EXTERNAL"
+
+  log_config {
+    aggregation_interval = "INTERVAL_5_SEC"
+    flow_sampling        = 0.5
+    metadata             = "INCLUDE_ALL_METADATA"
+  }
 }
 
 # Subnets in the same VPC are routed to each other automatically by system
