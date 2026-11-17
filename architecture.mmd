@@ -1,0 +1,44 @@
+flowchart TB
+    internet((Internet))
+    iap[Identity-Aware Proxy<br/>35.235.240.0/20]
+
+    subgraph vpc["VPC: main-vpc (global, custom mode, ULA IPv6 enabled)"]
+        direction TB
+
+        routes["<b>VPC routes</b> (one set for the whole VPC, no per-subnet route tables)<br/>
+        <b>Subnet routes (system, automatic)</b><br/>
+        10.0.1.0/24 → private-subnet (local)<br/>
+        10.0.2.0/24 → public-subnet (local)<br/>
+        private IPv6 /64 → private-subnet (local)<br/>
+        public IPv6 /64 → public-subnet (local)<br/>
+        <b>Default routes</b><br/>
+        0.0.0.0/0 → default-internet-gateway (system)<br/>
+        ::/0 → default-internet-gateway (default-route-ipv6, Terraform)"]
+
+        subgraph region["Region: us-central1"]
+            direction TB
+
+            subgraph pub["public-subnet<br/>IPv4 10.0.2.0/24<br/>IPv6 external /64 (public)"]
+                publicvm["public-vm (e2-micro)<br/>internal IPv4 10.0.2.x<br/>ephemeral external IPv4<br/>external IPv6"]
+            end
+
+            subgraph priv["private-subnet<br/>IPv4 10.0.1.0/24<br/>IPv6 internal ULA /64 (private)"]
+                privatevm["private-vm (e2-micro)<br/>internal IPv4 10.0.1.x<br/>internal IPv6"]
+            end
+
+            router["Cloud Router: main-router"]
+            nat["Cloud NAT: private-nat<br/>(IPv4 egress only)"]
+            router --- nat
+        end
+
+        fw["Firewall rules<br/>allow-internal (IPv4)<br/>allow-internal-ipv6<br/>allow-iap-ssh (tcp/22)"]
+    end
+
+    routes -.->|"applies to"| pub
+    routes -.->|"applies to"| priv
+    publicvm <-->|"subnet routes + allow-internal<br/>IPv4 and IPv6"| privatevm
+    publicvm <-->|"default routes 0.0.0.0/0 and ::/0<br/>(external IPs)"| internet
+    privatevm -->|"outbound IPv4<br/>(0.0.0.0/0 route, translated by NAT)"| nat
+    nat --> internet
+    iap -.->|"SSH"| publicvm
+    iap -.->|"SSH"| privatevm
