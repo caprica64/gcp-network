@@ -20,9 +20,20 @@ variable "region" {
   default     = "us-central1"
 }
 
+variable "cost_label" {
+  type        = string
+  description = "Value of the 'project' label used for cost identification"
+  default     = "gcp-network"
+}
+
 provider "google" {
   project = var.project_id
   region  = var.region
+
+  # Applied to every resource that supports labels.
+  default_labels = {
+    project = var.cost_label
+  }
 }
 
 # GCP VPCs are global and have no CIDR of their own; 10.0.0.0/16 is the
@@ -179,10 +190,12 @@ resource "google_compute_instance" "private_vm" {
   machine_type = "e2-micro"
   zone         = var.zone
   tags         = ["test-vm"]
+  labels       = { project = var.cost_label }
 
   boot_disk {
     initialize_params {
-      image = "debian-cloud/debian-12"
+      image  = "debian-cloud/debian-12"
+      labels = { project = var.cost_label }
     }
   }
 
@@ -199,10 +212,12 @@ resource "google_compute_instance" "public_vm" {
   machine_type = "e2-micro"
   zone         = var.zone
   tags         = ["test-vm"]
+  labels       = { project = var.cost_label }
 
   boot_disk {
     initialize_params {
-      image = "debian-cloud/debian-12"
+      image  = "debian-cloud/debian-12"
+      labels = { project = var.cost_label }
     }
   }
 
