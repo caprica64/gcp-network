@@ -1,47 +1,70 @@
 flowchart TB
     internet((Internet))
     iap[Identity-Aware Proxy<br/>35.235.240.0/20]
-    logging[("Cloud Logging<br/>VPC Flow Logs")]
 
-    subgraph vpc["VPC: main-vpc (global, custom mode, ULA IPv6 enabled)"]
+    subgraph devproj["GCP project: rm-lab-w1 (development, Shared VPC host)"]
         direction TB
-
-        routes["<b>VPC routes</b> (one set for the whole VPC, no per-subnet route tables)<br/>
-        <b>Subnet routes (system, automatic)</b><br/>
-        10.0.1.0/24 → private-subnet (local)<br/>
-        10.0.2.0/24 → public-subnet (local)<br/>
-        private IPv6 /64 → private-subnet (local)<br/>
-        public IPv6 /64 → public-subnet (local)<br/>
-        <b>Default routes</b><br/>
-        0.0.0.0/0 → default-internet-gateway (system)<br/>
-        ::/0 → default-internet-gateway (default-route-ipv6, Terraform)"]
-
-        subgraph region["Region: us-central1"]
+        subgraph devvpc["VPC: main-vpc (global, custom mode, ULA IPv6)"]
             direction TB
-
-            subgraph pub["public-subnet<br/>IPv4 10.0.2.0/24<br/>IPv6 external /64 (public)"]
-                publicvm["public-vm (e2-micro)<br/>internal IPv4 10.0.2.x<br/>ephemeral external IPv4<br/>external IPv6"]
+            devroutes["<b>VPC routes</b> (no per-subnet route tables)<br/>10.0.1.0/24 → private-subnet<br/>10.0.2.0/24 → public-subnet<br/>IPv6 /64 of each subnet → local<br/>0.0.0.0/0 and ::/0 → default-internet-gateway"]
+            subgraph devregion["Region: us-central1"]
+                direction TB
+                subgraph devpub["public-subnet<br/>IPv4 10.0.2.0/24<br/>IPv6 external /64"]
+                    devpublicvm["public-vm<br/>external IPv4 + IPv6"]
+                end
+                subgraph devpriv["private-subnet<br/>IPv4 10.0.1.0/24<br/>IPv6 internal ULA /64"]
+                    devprivatevm["private-vm<br/>internal IPv4 + IPv6"]
+                end
+                devnat["Cloud Router + Cloud NAT<br/>(IPv4 egress only)"]
             end
-
-            subgraph priv["private-subnet<br/>IPv4 10.0.1.0/24<br/>IPv6 internal ULA /64 (private)"]
-                privatevm["private-vm (e2-micro)<br/>internal IPv4 10.0.1.x<br/>internal IPv6"]
-            end
-
-            router["Cloud Router: main-router"]
-            nat["Cloud NAT: private-nat<br/>(IPv4 egress only)"]
-            router --- nat
+            devfw["Firewall: allow-internal, allow-internal-ipv6, allow-iap-ssh"]
         end
-
-        fw["Firewall rules<br/>allow-internal (IPv4)<br/>allow-internal-ipv6<br/>allow-iap-ssh (tcp/22)"]
+        devlog[("Cloud Logging<br/>VPC Flow Logs")]
     end
 
-    routes -.->|"applies to"| pub
-    routes -.->|"applies to"| priv
-    publicvm <-->|"subnet routes + allow-internal<br/>IPv4 and IPv6"| privatevm
-    publicvm <-->|"default routes 0.0.0.0/0 and ::/0<br/>(external IPs)"| internet
-    privatevm -->|"outbound IPv4<br/>(0.0.0.0/0 route, translated by NAT)"| nat
-    nat --> internet
-    iap -.->|"SSH"| publicvm
-    iap -.->|"SSH"| privatevm
-    pub -.->|"flow logs<br/>5s interval, 50% sampling"| logging
-    priv -.->|"flow logs<br/>5s interval, 50% sampling"| logging
+    subgraph prodproj["GCP project: rm-lab-prod (production, Shared VPC host)"]
+        direction TB
+        subgraph prodvpc["VPC: main-vpc (global, custom mode, ULA IPv6)"]
+            direction TB
+            prodroutes["<b>VPC routes</b> (no per-subnet route tables)<br/>10.1.1.0/24 → private-subnet<br/>10.1.2.0/24 → public-subnet<br/>IPv6 /64 of each subnet → local<br/>0.0.0.0/0 and ::/0 → default-internet-gateway"]
+            subgraph prodregion["Region: us-central1"]
+                direction TB
+                subgraph prodpub["public-subnet<br/>IPv4 10.1.2.0/24<br/>IPv6 external /64"]
+                    prodpublicvm["public-vm<br/>external IPv4 + IPv6"]
+                end
+                subgraph prodpriv["private-subnet<br/>IPv4 10.1.1.0/24<br/>IPv6 internal ULA /64"]
+                    prodprivatevm["private-vm<br/>internal IPv4 + IPv6"]
+                end
+                prodnat["Cloud Router + Cloud NAT<br/>(IPv4 egress only)"]
+            end
+            prodfw["Firewall: allow-internal, allow-internal-ipv6, allow-iap-ssh"]
+        end
+        prodlog[("Cloud Logging<br/>VPC Flow Logs")]
+    end
+
+    svc["Service projects<br/>(attach to a host project as needed)"]
+
+    devroutes -.->|"applies to"| devpub
+    devroutes -.->|"applies to"| devpriv
+    devpublicvm <-->|"subnet routes + allow-internal"| devprivatevm
+    devpublicvm <-->|"default routes (external IPs)"| internet
+    devprivatevm -->|"outbound IPv4"| devnat
+    devnat --> internet
+    iap -.->|"SSH"| devpublicvm
+    iap -.->|"SSH"| devprivatevm
+    devpub -.->|"flow logs"| devlog
+    devpriv -.->|"flow logs"| devlog
+
+    prodroutes -.->|"applies to"| prodpub
+    prodroutes -.->|"applies to"| prodpriv
+    prodpublicvm <-->|"subnet routes + allow-internal"| prodprivatevm
+    prodpublicvm <-->|"default routes (external IPs)"| internet
+    prodprivatevm -->|"outbound IPv4"| prodnat
+    prodnat --> internet
+    iap -.->|"SSH"| prodpublicvm
+    iap -.->|"SSH"| prodprivatevm
+    prodpub -.->|"flow logs"| prodlog
+    prodpriv -.->|"flow logs"| prodlog
+
+    svc -.->|"Shared VPC"| devvpc
+    svc -.->|"Shared VPC"| prodvpc

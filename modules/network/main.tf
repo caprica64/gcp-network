@@ -9,35 +9,15 @@ terraform {
   }
 }
 
-variable "project_id" {
-  type        = string
-  description = "GCP project ID"
+# Makes the project a Shared VPC host so service projects can attach to this
+# network and use its subnets.
+resource "google_compute_shared_vpc_host_project" "host" {
+  count   = var.enable_shared_vpc_host ? 1 : 0
+  project = google_compute_network.vpc.project
 }
 
-variable "region" {
-  type        = string
-  description = "Region for the subnets"
-  default     = "us-central1"
-}
-
-variable "cost_label" {
-  type        = string
-  description = "Value of the 'project' label used for cost identification"
-  default     = "gcp-network"
-}
-
-provider "google" {
-  project = var.project_id
-  region  = var.region
-
-  # Applied to every resource that supports labels.
-  default_labels = {
-    project = var.cost_label
-  }
-}
-
-# GCP VPCs are global and have no CIDR of their own; 10.0.0.0/16 is the
-# address space the subnets below are carved from.
+# GCP VPCs are global and have no CIDR of their own; the subnets below carve
+# the address space.
 resource "google_compute_network" "vpc" {
   name                    = "main-vpc"
   auto_create_subnetworks = false
@@ -49,7 +29,7 @@ resource "google_compute_network" "vpc" {
 # Private subnet: dual-stack with an internal (ULA, not internet-routable) /64.
 resource "google_compute_subnetwork" "private" {
   name                     = "private-subnet"
-  ip_cidr_range            = "10.0.1.0/24"
+  ip_cidr_range            = var.private_subnet_cidr
   region                   = var.region
   network                  = google_compute_network.vpc.id
   private_ip_google_access = true
@@ -67,7 +47,7 @@ resource "google_compute_subnetwork" "private" {
 # Public subnet: dual-stack with a Google-assigned, internet-routable /64.
 resource "google_compute_subnetwork" "public" {
   name          = "public-subnet"
-  ip_cidr_range = "10.0.2.0/24"
+  ip_cidr_range = var.public_subnet_cidr
   region        = var.region
   network       = google_compute_network.vpc.id
 
@@ -105,7 +85,7 @@ resource "google_compute_firewall" "allow_internal" {
 }
 
 # GCP creates the IPv4 default route (0.0.0.0/0) for you, but not the IPv6 one.
-# Without this, the public VM's external IPv6 address can't reach the internet.
+# Without this, VMs with an external IPv6 address can't reach the internet.
 resource "google_compute_route" "default_ipv6" {
   name             = "default-route-ipv6"
   network          = google_compute_network.vpc.name
@@ -159,18 +139,13 @@ resource "google_compute_router_nat" "private_nat" {
 }
 
 # ---------------------------------------------------------------------------
-# Test VMs
+# Test VMs (optional)
 # ---------------------------------------------------------------------------
-
-variable "zone" {
-  type        = string
-  description = "Zone for the test VMs (must be in var.region)"
-  default     = "us-central1-a"
-}
 
 # SSH through Identity-Aware Proxy (gcloud compute ssh --tunnel-through-iap),
 # so neither VM needs SSH open to the internet.
 resource "google_compute_firewall" "allow_iap_ssh" {
+  count         = var.create_test_vms ? 1 : 0
   name          = "allow-iap-ssh"
   network       = google_compute_network.vpc.name
   direction     = "INGRESS"
@@ -184,8 +159,9 @@ resource "google_compute_firewall" "allow_iap_ssh" {
 }
 
 # Private VM: no access_config / ipv6_access_config, so it only gets an
-# internal IPv4 (10.0.1.x) and an internal ULA IPv6 address.
+# internal IPv4 and an internal ULA IPv6 address.
 resource "google_compute_instance" "private_vm" {
+  count        = var.create_test_vms ? 1 : 0
   name         = "private-vm"
   machine_type = "e2-micro"
   zone         = var.zone
@@ -208,6 +184,7 @@ resource "google_compute_instance" "private_vm" {
 # Public VM: empty access_config requests an ephemeral external IPv4, and
 # ipv6_access_config requests an external IPv6 from the public subnet's /64.
 resource "google_compute_instance" "public_vm" {
+  count        = var.create_test_vms ? 1 : 0
   name         = "public-vm"
   machine_type = "e2-micro"
   zone         = var.zone
@@ -230,20 +207,5 @@ resource "google_compute_instance" "public_vm" {
     ipv6_access_config {
       network_tier = "PREMIUM"
     }
-  }
-}
-
-output "private_vm_ips" {
-  value = {
-    ipv4 = google_compute_instance.private_vm.network_interface[0].network_ip
-    ipv6 = google_compute_instance.private_vm.network_interface[0].ipv6_address
-  }
-}
-
-output "public_vm_ips" {
-  value = {
-    internal_ipv4 = google_compute_instance.public_vm.network_interface[0].network_ip
-    external_ipv4 = google_compute_instance.public_vm.network_interface[0].access_config[0].nat_ip
-    external_ipv6 = google_compute_instance.public_vm.network_interface[0].ipv6_access_config[0].external_ipv6
   }
 }
